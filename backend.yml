@@ -1,0 +1,60 @@
+variables:
+  server: 172.23.232.8
+  app: weiluo
+  appPath: /data/weiluo
+  jarPath: weiluo-backend/weiluo-admin/target/weiluo-admin.jar
+
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - test
+  - deploy
+
+# project build
+build:       # This job runs in the build stage, which runs first.
+  stage: build
+  tags: # 指定要运行的 runner，指定的是 runner 的 tag
+    - runner-backend
+  only:
+  - master
+  script:
+    - echo "Packaging project..."
+    - echo $CI_BUILDS_DIR
+#    - mvn clean # 清理
+    - mvn clean install "-Dmaven.test.skip=true" # -Dmaven.test.skip=true：打包（跳过测试）；-o：离线
+    - pwd
+    - mkdir -p /home/gitlab-runner/$app
+    - cp -rf ../ /home/gitlab-runner/$app
+    - echo "Package complete!"
+
+# test
+test:   # This job runs in the test stage. # 没有指定要运行的 runner，就在可以运行的 runner 上选择一台运行
+  stage: test    # It only starts when the job in the build stage completes successfully.
+  only:
+  - master
+  tags:
+    - runner-backend
+  needs:
+    - build
+  script:
+    - echo "Running unit tests... This will take about 30 seconds."
+    - echo "Code coverage is 90%"
+
+# deploy
+deploy:      # This job runs in the deploy stage.
+  stage: deploy
+  only:
+  - master
+  tags:
+    - runner-backend
+  needs:
+    - test
+  script:
+    - set +e # set -e 表示有报错即退出， set +e [errexit ]表示关闭这种设置
+    # - $(netstat -nap | grep 12313 | awk '{print $7}' | awk -F "/" '{print $1}') # (No info could be read for "-p": geteuid()=996 but you should be root.)
+    - echo "Deploying application..."
+    - ssh root@$server "mv -f $appPath/weiluo-admin.jar $appPath/weiluo-admin.jar.bak"
+    - scp /home/gitlab-runner/$app/$jarPath root@$server:$appPath
+    - ssh root@$server "sh $appPath/update.sh"
+    - echo "Application successfully deployed."
+  after_script:
+    - bash /home/gitlab-runner/senddd.sh $CI_JOB_STATUS
